@@ -1,0 +1,62 @@
+name: iPhone build
+
+# Manual only: publishing this file does not automatically consume build minutes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Standard hosted macOS compute is free for public repositories only.
+    # Never start this job in the private development repository.
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ios
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Show build tools
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Test shared core
+        run: swift test
+      - name: Generate Xcode project
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+      - name: Compile iPhone simulator app
+        run: |
+          xcodebuild -project ScrollStats.xcodeproj -scheme ScrollStats \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO build
+      - name: Compile unsigned iPhone device app
+        run: |
+          xcodebuild -project ScrollStats.xcodeproj -scheme ScrollStats \
+            -configuration Debug -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO build
+      - name: Package simulator app
+        run: ditto -c -k --sequesterRsrc --keepParent build/simulator/Build/Products/Debug-iphonesimulator/ScrollStats.app build/ScrollStats-simulator.zip
+      - name: Package unsigned device IPA for local signing
+        run: |
+          mkdir -p build/sideload/Payload
+          ditto build/device/Build/Products/Debug-iphoneos/ScrollStats.app build/sideload/Payload/ScrollStats.app
+          cd build/sideload
+          /usr/bin/zip -q -r ../ScrollStats-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScrollStats-builds
+          path: |
+            ios/build/ScrollStats-simulator.zip
+            ios/build/ScrollStats-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 1
