@@ -1,0 +1,34 @@
+# Manual personal-account build only. Keep billing disabled; use the included M2 minutes.
+workflows:
+  iphone-free:
+    name: ScrollStats unsigned iPhone
+    instance_type: mac_mini_m2
+    max_build_duration: 20
+    environment:
+      xcode: latest
+    scripts:
+      - name: Test and generate project
+        script: |
+          set -euo pipefail
+          cd ios
+          swift test
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+      - name: Compile simulator and device apps
+        script: |
+          set -euo pipefail
+          cd ios
+          xcodebuild -project ScrollStats.xcodeproj -scheme ScrollStats -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project ScrollStats.xcodeproj -scheme ScrollStats -configuration Debug -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO build
+      - name: Package for local signing
+        script: |
+          set -euo pipefail
+          cd ios
+          mkdir -p build/sideload/Payload
+          ditto build/device/Build/Products/Debug-iphoneos/ScrollStats.app build/sideload/Payload/ScrollStats.app
+          ditto -c -k --sequesterRsrc --keepParent build/simulator/Build/Products/Debug-iphonesimulator/ScrollStats.app build/ScrollStats-simulator.zip
+          cd build/sideload
+          /usr/bin/zip -q -r ../ScrollStats-unsigned.ipa Payload
+    artifacts:
+      - ios/build/ScrollStats-unsigned.ipa
+      - ios/build/ScrollStats-simulator.zip
